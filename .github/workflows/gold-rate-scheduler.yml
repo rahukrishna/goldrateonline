@@ -1,0 +1,57 @@
+name: Gold Rate Scheduler
+
+on:
+  schedule:
+    # 10:00 AM IST = 04:30 UTC
+    - cron: "30 4 * * *"
+    # 5:00 PM IST = 11:30 UTC
+    - cron: "30 11 * * *"
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "Capture slot"
+        type: choice
+        options:
+          - AUTO
+          - MORNING
+          - EVENING
+        default: AUTO
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Resolve slot
+        id: slot
+        shell: bash
+        run: |
+          SLOT="AUTO"
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            if [[ "${{ github.event.schedule }}" == "30 4 * * *" ]]; then
+              SLOT="MORNING"
+            elif [[ "${{ github.event.schedule }}" == "30 11 * * *" ]]; then
+              SLOT="EVENING"
+            fi
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            SLOT="${{ inputs.slot }}"
+          fi
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+          echo "Using slot: $SLOT"
+
+      - name: Capture rate
+        run: python capture_once.py --slot "${{ steps.slot.outputs.slot }}"

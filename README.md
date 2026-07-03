@@ -130,3 +130,36 @@ This repo includes:
 - `runtime.txt`
 
 So you can also deploy on platforms like Render or Railway.
+
+## Automatic 10 AM / 5 PM Updates (GitHub Actions)
+
+This repo includes a scheduler workflow at `.github/workflows/gold-rate-scheduler.yml`.
+
+It runs automatically at:
+
+- 10:00 AM IST
+- 5:00 PM IST
+
+### One-time setup
+
+1. Open GitHub repo settings:
+	- `https://github.com/rahukrishna/goldrateonline/settings/secrets/actions`
+2. Add repository secret:
+
+```text
+Name: DATABASE_URL
+Value: your Supabase/Postgres connection URI
+```
+
+3. Open Actions tab and enable workflows if prompted.
+
+### Manual run
+
+1. Go to GitHub Actions -> `Gold Rate Scheduler`
+2. Click **Run workflow**
+3. Choose slot: `AUTO`, `MORNING`, or `EVENING`
+
+### Notes
+
+- Workflow uses `capture_once.py` to store one snapshot per run.
+- If both Streamlit and Actions use the same `DATABASE_URL`, your hosted app always shows the latest scheduled values.
