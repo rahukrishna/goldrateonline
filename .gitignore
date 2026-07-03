@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.venv/
+venv/
+
+# Streamlit / local state
+.streamlit/secrets.toml
+
+# Local database and logs
+gold_rates.db
+*.log
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
