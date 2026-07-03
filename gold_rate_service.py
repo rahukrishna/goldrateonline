@@ -110,6 +110,8 @@ def init_db() -> None:
         conn = _pg_connect()
         try:
             with conn.cursor() as cur:
+                # Prevent concurrent startup races on CREATE TABLE during Streamlit redeploys.
+                cur.execute("SELECT pg_advisory_lock(hashtext('goldrate_rates_init'))")
                 cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS rates (
@@ -125,6 +127,7 @@ def init_db() -> None:
                     )
                     """
                 )
+                cur.execute("SELECT pg_advisory_unlock(hashtext('goldrate_rates_init'))")
             conn.commit()
         finally:
             conn.close()
