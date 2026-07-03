@@ -91,6 +91,37 @@ Your app will get a public URL and be accessible from anywhere.
 - The background scheduler (`scheduler.py`) is for always-on local/server process and usually does not run as a background service on free web app hosting.
 - Use the in-app **FETCH LAST 30 DAYS** button to backfill historical data.
 
+## Persistent Hosted Database (Recommended)
+
+To keep records permanently on the internet, use PostgreSQL (for example Supabase).
+
+### 1. Create PostgreSQL DB
+
+- Create a project in Supabase (or any hosted Postgres).
+- Copy the connection string (URI), example:
+
+```text
+postgresql://USER:PASSWORD@HOST:5432/postgres
+```
+
+### 2. Add DB URL to Streamlit Cloud
+
+In Streamlit app settings, open **Secrets** and add:
+
+```toml
+DATABASE_URL = "postgresql://USER:PASSWORD@HOST:5432/postgres"
+```
+
+### 3. Redeploy / Reboot app
+
+- Reboot app from Streamlit Cloud **Manage app**.
+- On startup, app auto-creates table and uses Postgres instead of local SQLite.
+
+### Notes
+
+- If `DATABASE_URL` is missing, app falls back to local `gold_rates.db`.
+- App automatically ensures recent 30-day history is available on startup.
+
 ## Alternative Hosting (Render/Railway)
 
 This repo includes:

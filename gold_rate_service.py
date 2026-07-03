@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Optional
+import tomllib
 
 import requests
 from bs4 import BeautifulSoup
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except Exception:  # pragma: no cover - optional dependency in local setups
+    psycopg = None
+    dict_row = None
 
 DB_PATH = Path(__file__).parent / "gold_rates.db"
 SOURCE_URL = "https://www.goodreturns.in/gold-rates/kerala.html"
@@ -22,6 +31,46 @@ AJAX_HEADERS = {
 }
 
 
+def _load_database_url() -> Optional[str]:
+    db_url = os.getenv("DATABASE_URL", "").strip()
+    if not db_url:
+        db_url = os.getenv("SUPABASE_DB_URL", "").strip()
+
+    if not db_url:
+        candidates = [
+            Path.cwd() / ".streamlit" / "secrets.toml",
+            Path.home() / ".streamlit" / "secrets.toml",
+        ]
+        for path in candidates:
+            if not path.exists():
+                continue
+            try:
+                data = tomllib.loads(path.read_text(encoding="utf-8"))
+                db_url = str(data.get("DATABASE_URL", "")).strip()
+                if db_url:
+                    break
+            except Exception:
+                continue
+
+    if db_url.startswith("postgres://"):
+        db_url = "postgresql://" + db_url[len("postgres://"):]
+
+    return db_url or None
+
+
+def _use_postgres() -> bool:
+    return _load_database_url() is not None
+
+
+def _pg_connect():
+    db_url = _load_database_url()
+    if not db_url:
+        raise RuntimeError("DATABASE_URL is not configured.")
+    if psycopg is None:
+        raise RuntimeError("psycopg is not installed. Add psycopg[binary] to requirements.")
+    return psycopg.connect(db_url)
+
+
 @dataclass
 class GoldRateRecord:
     recorded_at: datetime
@@ -33,6 +82,30 @@ class GoldRateRecord:
 
 
 def init_db() -> None:
+    if _use_postgres():
+        conn = _pg_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS rates (
+                        id BIGSERIAL PRIMARY KEY,
+                        recorded_at TEXT NOT NULL,
+                        date_key TEXT NOT NULL,
+                        slot TEXT NOT NULL,
+                        rate_22k DOUBLE PRECISION NOT NULL,
+                        rate_24k DOUBLE PRECISION NOT NULL,
+                        source_url TEXT NOT NULL,
+                        notes TEXT,
+                        UNIQUE(date_key, slot)
+                    )
+                    """
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        return
+
     conn = sqlite3.connect(DB_PATH)
     try:
         conn.execute(
@@ -221,16 +294,25 @@ def ensure_recent_history(days: int = 30, include_today: bool = False) -> dict:
     This keeps the app history available without re-fetching already stored days.
     """
     init_db()
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        existing_dates = {
-            row[0]
-            for row in conn.execute(
-                "SELECT DISTINCT date_key FROM rates"
-            ).fetchall()
-        }
-    finally:
-        conn.close()
+    if _use_postgres():
+        conn = _pg_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT date_key FROM rates")
+                existing_dates = {row[0] for row in cur.fetchall()}
+        finally:
+            conn.close()
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            existing_dates = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT DISTINCT date_key FROM rates"
+                ).fetchall()
+            }
+        finally:
+            conn.close()
 
     inserted = 0
     failed = 0
@@ -274,9 +356,40 @@ def ensure_recent_history(days: int = 30, include_today: bool = False) -> dict:
 
 
 def upsert_rate(record: GoldRateRecord) -> None:
+    date_key = record.recorded_at.strftime("%Y-%m-%d")
+
+    if _use_postgres():
+        conn = _pg_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO rates (recorded_at, date_key, slot, rate_22k, rate_24k, source_url, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT(date_key, slot) DO UPDATE SET
+                        recorded_at=excluded.recorded_at,
+                        rate_22k=excluded.rate_22k,
+                        rate_24k=excluded.rate_24k,
+                        source_url=excluded.source_url,
+                        notes=excluded.notes
+                    """,
+                    (
+                        record.recorded_at.isoformat(timespec="seconds"),
+                        date_key,
+                        record.slot,
+                        record.rate_22k,
+                        record.rate_24k,
+                        record.source_url,
+                        record.notes,
+                    ),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        return
+
     conn = sqlite3.connect(DB_PATH)
     try:
-        date_key = record.recorded_at.strftime("%Y-%m-%d")
         conn.execute(
             """
             INSERT INTO rates (recorded_at, date_key, slot, rate_22k, rate_24k, source_url, notes)
@@ -304,6 +417,25 @@ def upsert_rate(record: GoldRateRecord) -> None:
 
 
 def read_rates(month: Optional[str] = None) -> list[dict]:
+    if _use_postgres():
+        conn = _pg_connect()
+        try:
+            with conn.cursor(row_factory=dict_row) as cur:
+                if month:
+                    cur.execute(
+                        """
+                        SELECT * FROM rates
+                        WHERE substring(recorded_at from 1 for 7) = %s
+                        ORDER BY recorded_at ASC
+                        """,
+                        (month,),
+                    )
+                else:
+                    cur.execute("SELECT * FROM rates ORDER BY recorded_at ASC")
+                return list(cur.fetchall())
+        finally:
+            conn.close()
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
@@ -326,6 +458,16 @@ def read_rates(month: Optional[str] = None) -> list[dict]:
 
 
 def latest_rate() -> Optional[dict]:
+    if _use_postgres():
+        conn = _pg_connect()
+        try:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("SELECT * FROM rates ORDER BY recorded_at DESC LIMIT 1")
+                row = cur.fetchone()
+                return row if row else None
+        finally:
+            conn.close()
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
