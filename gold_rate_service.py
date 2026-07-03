@@ -9,6 +9,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Optional
 import tomllib
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -55,6 +56,13 @@ def _load_database_url() -> Optional[str]:
 
     if db_url.startswith("postgres://"):
         db_url = "postgresql://" + db_url[len("postgres://"):]
+
+    if db_url:
+        parts = urlsplit(db_url)
+        if parts.query:
+            # psycopg doesn't recognize Supabase helper flag `pgbouncer=true` in URI params.
+            kept_params = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k.lower() != "pgbouncer"]
+            db_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(kept_params), parts.fragment))
 
     return db_url or None
 
