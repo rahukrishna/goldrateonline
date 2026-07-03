@@ -420,7 +420,16 @@ if df.empty or not latest:
     render_manual_form()
     st.markdown('</div>', unsafe_allow_html=True)
 else:
-    df["recorded_at"] = pd.to_datetime(df["recorded_at"])
+    # Normalize mixed timestamp formats (with and without timezone suffix).
+    raw_ts = df["recorded_at"].astype(str).str.strip()
+    has_tz = raw_ts.str.contains(r"(Z|[+-]\d{2}:\d{2})$", regex=True)
+    normalized_ts = raw_ts.where(has_tz, raw_ts + "+05:30")
+    df["recorded_at"] = (
+        pd.to_datetime(normalized_ts, errors="coerce", utc=True)
+        .dt.tz_convert("Asia/Kolkata")
+        .dt.tz_localize(None)
+    )
+    df = df.dropna(subset=["recorded_at"])
     df = df.sort_values("recorded_at")
     df["rate_22k_8g"] = df["rate_22k"] * 8
     df["rate_24k_8g"] = df["rate_24k"] * 8
