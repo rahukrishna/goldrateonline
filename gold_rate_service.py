@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+from functools import lru_cache
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -59,7 +60,22 @@ def _load_database_url() -> Optional[str]:
 
 
 def _use_postgres() -> bool:
-    return _load_database_url() is not None
+    return _active_db_backend() == "postgres"
+
+
+@lru_cache(maxsize=1)
+def _active_db_backend() -> str:
+    db_url = _load_database_url()
+    if not db_url or psycopg is None:
+        return "sqlite"
+
+    try:
+        # Validate connection once at startup; fallback to SQLite on failure.
+        conn = psycopg.connect(db_url, connect_timeout=8)
+        conn.close()
+        return "postgres"
+    except Exception:
+        return "sqlite"
 
 
 def _pg_connect():
