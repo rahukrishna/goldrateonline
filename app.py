@@ -10,6 +10,7 @@ import streamlit as st
 from gold_rate_service import (
     GoldRateRecord,
     backfill_recent_days,
+    ensure_recent_history,
     fetch_kerala_rates,
     init_db,
     latest_rate,
@@ -371,6 +372,13 @@ with right_actions:
     btn_col1, btn_col2 = st.columns(2)
     fetch_pressed = btn_col1.button("FETCH LAST 30 DAYS", use_container_width=True)
     live_pressed = btn_col2.button("UPDATE LIVE", use_container_width=True)
+
+# Keep a rolling 30-day history available automatically.
+try:
+    ensure_recent_history(days=30, include_today=False)
+except Exception:
+    # Non-blocking: app can still work with existing DB data or manual entries.
+    pass
 
 if fetch_pressed:
     with st.spinner("Fetching last 30 days history..."):

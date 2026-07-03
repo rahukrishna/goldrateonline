@@ -215,6 +215,64 @@ def backfill_recent_days(days: int = 30, include_today: bool = True) -> dict:
     return {"inserted": inserted, "failed": failed, "days": days}
 
 
+def ensure_recent_history(days: int = 30, include_today: bool = False) -> dict:
+    """
+    Ensures recent day-wise history exists in DB by fetching only missing dates.
+    This keeps the app history available without re-fetching already stored days.
+    """
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        existing_dates = {
+            row[0]
+            for row in conn.execute(
+                "SELECT DISTINCT date_key FROM rates"
+            ).fetchall()
+        }
+    finally:
+        conn.close()
+
+    inserted = 0
+    failed = 0
+    skipped = 0
+
+    end_offset = 0 if include_today else 1
+    session = requests.Session()
+    session.get(SOURCE_URL, timeout=TIMEOUT_SECONDS, headers={"User-Agent": "Mozilla/5.0"})
+
+    for offset in range(end_offset, days + end_offset):
+        target_date = (datetime.now() - timedelta(days=offset)).date()
+        date_key = target_date.strftime("%Y-%m-%d")
+
+        if date_key in existing_dates:
+            skipped += 1
+            continue
+
+        try:
+            rate_22k, rate_24k = fetch_kerala_rates_for_date(target_date, session=session)
+            timestamp = datetime.combine(target_date, time(hour=12, minute=0, second=0))
+            slot = f"HISTORY_{target_date.strftime('%Y%m%d')}"
+            upsert_rate(
+                GoldRateRecord(
+                    recorded_at=timestamp,
+                    slot=slot,
+                    rate_22k=rate_22k,
+                    rate_24k=rate_24k,
+                    notes="Auto ensure recent history",
+                )
+            )
+            inserted += 1
+        except Exception:
+            failed += 1
+
+    return {
+        "inserted": inserted,
+        "failed": failed,
+        "skipped": skipped,
+        "days": days,
+    }
+
+
 def upsert_rate(record: GoldRateRecord) -> None:
     conn = sqlite3.connect(DB_PATH)
     try:
