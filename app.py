@@ -303,6 +303,54 @@ def stat_card(label: str, amount_value: float, date_value: str) -> str:
     )
 
 
+def render_manual_form() -> None:
+    with st.form("manual_rate_form"):
+        top1, top2, top3 = st.columns([1.05, 0.95, 0.9])
+        now_local = datetime.now()
+        with top1:
+            entry_date = st.date_input("Date", value=now_local.date())
+        with top2:
+            entry_time = st.time_input("Time", value=now_local.replace(second=0, microsecond=0).time())
+        with top3:
+            slot_choice = st.selectbox("Slot", ["AUTO", "MORNING", "EVENING", "CUSTOM"])
+
+        custom_slot = ""
+        if slot_choice == "CUSTOM":
+            custom_slot = st.text_input("Custom Slot Name", placeholder="NOON_CHECK")
+
+        p1, p2 = st.columns(2)
+        with p1:
+            rate_22k = st.number_input("22K Rate (INR)", min_value=0.0, step=1.0)
+        with p2:
+            rate_24k = st.number_input("24K Rate (INR)", min_value=0.0, step=1.0)
+
+        manual_notes = st.text_input("Notes", value="Manual entry from dashboard")
+        submitted = st.form_submit_button("Save Manual Rate", use_container_width=True)
+
+        if submitted:
+            entry_datetime = datetime.combine(entry_date, entry_time)
+
+            if slot_choice == "AUTO":
+                slot_value = f"MANUAL_{entry_datetime.strftime('%H%M%S')}"
+            elif slot_choice == "CUSTOM":
+                if not custom_slot.strip():
+                    st.error("Please enter a custom slot name.")
+                    st.stop()
+                slot_value = custom_slot.strip().upper().replace(" ", "_")
+            else:
+                slot_value = slot_choice
+
+            save_manual_rate(
+                rate_22k=rate_22k,
+                rate_24k=rate_24k,
+                recorded_at=entry_datetime,
+                slot=slot_value,
+                notes=manual_notes.strip() or "Manual entry from dashboard",
+            )
+            st.success("Manual rate saved successfully.")
+            st.rerun()
+
+
 left_header, right_actions = st.columns([3, 2])
 with left_header:
     st.markdown(
@@ -347,7 +395,11 @@ try:
     if live_pressed:
         st.success("Live update completed.")
 except Exception as exc:
-    st.warning(f"Live fetch failed. Showing last saved value. Details: {exc}")
+    st.warning(
+        "Live fetch is temporarily blocked by source (common on cloud IPs). "
+        "You can use Fetch Last 30 Days or add manual rates below. "
+        f"Details: {exc}"
+    )
 
 latest = latest_rate()
 rows = read_rates()
@@ -355,6 +407,10 @@ df = pd.DataFrame(rows)
 
 if df.empty or not latest:
     st.warning("No data available yet. Use Update Live or add manual rates.")
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Manual Entry</div>', unsafe_allow_html=True)
+    render_manual_form()
+    st.markdown('</div>', unsafe_allow_html=True)
 else:
     df["recorded_at"] = pd.to_datetime(df["recorded_at"])
     df = df.sort_values("recorded_at")
@@ -514,49 +570,5 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="panel">', unsafe_allow_html=True)
-        with st.form("manual_rate_form"):
-            top1, top2, top3 = st.columns([1.05, 0.95, 0.9])
-            now_local = datetime.now()
-            with top1:
-                entry_date = st.date_input("Date", value=now_local.date())
-            with top2:
-                entry_time = st.time_input("Time", value=now_local.replace(second=0, microsecond=0).time())
-            with top3:
-                slot_choice = st.selectbox("Slot", ["AUTO", "MORNING", "EVENING", "CUSTOM"])
-
-            custom_slot = ""
-            if slot_choice == "CUSTOM":
-                custom_slot = st.text_input("Custom Slot Name", placeholder="NOON_CHECK")
-
-            p1, p2 = st.columns(2)
-            with p1:
-                rate_22k = st.number_input("22K Rate (INR)", min_value=0.0, step=1.0)
-            with p2:
-                rate_24k = st.number_input("24K Rate (INR)", min_value=0.0, step=1.0)
-
-            manual_notes = st.text_input("Notes", value="Manual entry from dashboard")
-            submitted = st.form_submit_button("Save Manual Rate", use_container_width=True)
-
-            if submitted:
-                entry_datetime = datetime.combine(entry_date, entry_time)
-
-                if slot_choice == "AUTO":
-                    slot_value = f"MANUAL_{entry_datetime.strftime('%H%M%S')}"
-                elif slot_choice == "CUSTOM":
-                    if not custom_slot.strip():
-                        st.error("Please enter a custom slot name.")
-                        st.stop()
-                    slot_value = custom_slot.strip().upper().replace(" ", "_")
-                else:
-                    slot_value = slot_choice
-
-                save_manual_rate(
-                    rate_22k=rate_22k,
-                    rate_24k=rate_24k,
-                    recorded_at=entry_datetime,
-                    slot=slot_value,
-                    notes=manual_notes.strip() or "Manual entry from dashboard",
-                )
-                st.success("Manual rate saved successfully.")
-                st.rerun()
+        render_manual_form()
         st.markdown('</div>', unsafe_allow_html=True)

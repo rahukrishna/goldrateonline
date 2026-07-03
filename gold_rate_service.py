@@ -85,7 +85,20 @@ def fetch_kerala_rates() -> tuple[float, float]:
     The parser is intentionally defensive because the source page structure can change.
     If parsing fails, it raises ValueError.
     """
-    response = requests.get(SOURCE_URL, timeout=TIMEOUT_SECONDS)
+    session = requests.Session()
+
+    # Warm up cookies/session to reduce 403 responses from bot protection.
+    session.get(SOURCE_URL, timeout=TIMEOUT_SECONDS, headers={"User-Agent": "Mozilla/5.0"})
+
+    response = session.get(
+        SOURCE_URL,
+        timeout=TIMEOUT_SECONDS,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": SOURCE_URL,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+    )
     response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -121,7 +134,11 @@ def fetch_kerala_rates() -> tuple[float, float]:
         low, high = sorted([v1, v2])
         return low, high
 
-    raise ValueError("Could not parse Kerala gold rates from source page.")
+    # Final fallback: use the date-wise JSON endpoint for today.
+    try:
+        return fetch_kerala_rates_for_date(datetime.now().date(), session=session)
+    except Exception as exc:
+        raise ValueError("Could not parse Kerala gold rates from source page.") from exc
 
 
 def fetch_kerala_rates_for_date(
