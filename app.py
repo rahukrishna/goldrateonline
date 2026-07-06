@@ -672,6 +672,54 @@ def build_enhanced_forecast(
     )
 
 
+def build_forecast_accuracy_table(
+    daily_df: pd.DataFrame,
+    value_col: str,
+    lookback_days: int = 30,
+    min_train_days: int = 14,
+) -> pd.DataFrame:
+    """
+    Backtest accuracy using one-day-ahead forecasts.
+    For each day in the lookback window, predict that day using only past data.
+    """
+    data = daily_df[["date", value_col]].dropna().sort_values("date").reset_index(drop=True)
+    if len(data) < max(min_train_days + 1, 8):
+        return pd.DataFrame()
+
+    start_idx = max(min_train_days, len(data) - lookback_days)
+    rows = []
+
+    for idx in range(start_idx, len(data)):
+        train = data.iloc[:idx].copy()
+        target_date = pd.DatetimeIndex([pd.Timestamp(data.iloc[idx]["date"])])
+
+        fc = build_forecast(train, target_date, value_col)
+        if fc.empty:
+            continue
+
+        predicted = float(fc.iloc[0]["yhat"])
+        actual = float(data.iloc[idx][value_col])
+        diff = actual - predicted
+        diff_pct = (diff / predicted * 100.0) if predicted else np.nan
+
+        rows.append(
+            {
+                "Date": pd.Timestamp(data.iloc[idx]["date"]),
+                "Predicted": predicted,
+                "Actual": actual,
+                "Difference": diff,
+                "Difference %": diff_pct,
+                "Absolute Error": abs(diff),
+                "Absolute Error %": abs(diff_pct) if pd.notna(diff_pct) else np.nan,
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame()
+
+    return pd.DataFrame(rows).sort_values("Date", ascending=False).reset_index(drop=True)
+
+
 def build_factor_outlook(daily_df: pd.DataFrame, value_col: str, horizon_end: pd.Timestamp) -> list[str]:
     notes: list[str] = []
 
@@ -1490,6 +1538,50 @@ else:
                     table_forecast[col] = table_forecast[col].map(lambda v: f"{v:,.2f}")
                 table_forecast["Change vs Previous Day"] = table_forecast["Change vs Previous Day"].map(delta_text)
                 st.dataframe(table_forecast.head(15), width="stretch", hide_index=True)
+
+                st.markdown("#### Forecast vs Actual Accuracy (Recent)")
+                accuracy_df = build_forecast_accuracy_table(daily_df, value_col, lookback_days=30, min_train_days=14)
+
+                if accuracy_df.empty:
+                    st.caption("Need more historical days to compare forecast vs actual.")
+                else:
+                    mae = float(accuracy_df["Absolute Error"].mean())
+                    mape = float(accuracy_df["Absolute Error %"].dropna().mean()) if accuracy_df["Absolute Error %"].notna().any() else np.nan
+                    bias = float(accuracy_df["Difference"].mean())
+
+                    a1, a2, a3 = st.columns(3)
+                    a1.metric("Avg Error (INR)", f"{mae:,.2f}")
+                    a2.metric("Avg Error (%)", f"{mape:,.2f}%" if pd.notna(mape) else "-")
+                    a3.metric("Bias (Actual - Pred)", f"{bias:,.2f}")
+
+                    table_accuracy = accuracy_df.copy()
+                    table_accuracy["Date"] = pd.to_datetime(table_accuracy["Date"]).dt.strftime("%d %b %Y")
+                    table_accuracy["Predicted"] = table_accuracy["Predicted"].map(lambda v: f"{v:,.2f}")
+                    table_accuracy["Actual"] = table_accuracy["Actual"].map(lambda v: f"{v:,.2f}")
+                    table_accuracy["Difference"] = table_accuracy["Difference"].map(delta_text)
+                    table_accuracy["Difference %"] = table_accuracy["Difference %"].map(
+                        lambda v: f"{v:+.2f}%" if pd.notna(v) else "-"
+                    )
+                    table_accuracy["Absolute Error"] = table_accuracy["Absolute Error"].map(lambda v: f"{v:,.2f}")
+                    table_accuracy["Absolute Error %"] = table_accuracy["Absolute Error %"].map(
+                        lambda v: f"{v:.2f}%" if pd.notna(v) else "-"
+                    )
+
+                    st.dataframe(
+                        table_accuracy[
+                            [
+                                "Date",
+                                "Predicted",
+                                "Actual",
+                                "Difference",
+                                "Difference %",
+                                "Absolute Error",
+                                "Absolute Error %",
+                            ]
+                        ],
+                        width="stretch",
+                        hide_index=True,
+                    )
 
         st.markdown('</div>', unsafe_allow_html=True)
 

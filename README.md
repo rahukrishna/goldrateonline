@@ -85,6 +85,13 @@ git push origin master
 
 Your app will get a public URL and be accessible from anywhere.
 
+## Why You See "App has gone to sleep"
+
+On Streamlit Community Cloud, sleeping after inactivity is platform behavior.
+This cannot be fully disabled from app code.
+
+If you need the app available all the time, deploy on an always-on paid host.
+
 ## Important Hosted Behavior
 
 - In hosted mode, the app still fetches the latest rate whenever page loads/refreshes.
@@ -128,8 +135,29 @@ This repo includes:
 
 - `Procfile`
 - `runtime.txt`
+- `render.yaml`
 
 So you can also deploy on platforms like Render or Railway.
+
+## Always-On Deployment (Render Blueprint)
+
+Use this when you want your app live all the time without the Streamlit sleep screen.
+
+1. Push latest code to GitHub.
+2. In Render, click **New** -> **Blueprint**.
+3. Select this repository.
+4. Render reads `render.yaml` and creates:
+	 - one always-on web service (Streamlit UI)
+	 - two cron jobs (10:00 AM and 5:00 PM IST captures)
+5. In Render dashboard, set `DATABASE_URL` for all created services.
+6. Deploy.
+
+Notes:
+
+- Use a paid plan (`starter` or higher) to avoid sleeping.
+- Cron schedules in `render.yaml` are UTC and already mapped to IST:
+	- `30 4 * * *` -> 10:00 AM IST
+	- `30 11 * * *` -> 5:00 PM IST
 
 ## Automatic 10 AM / 5 PM Updates (GitHub Actions)
 

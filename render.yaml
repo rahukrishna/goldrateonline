@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: goldrateonline
+    runtime: python
+    plan: starter
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: DATABASE_URL
+        sync: false
+
+  - type: cron
+    name: goldrate-morning
+    runtime: python
+    plan: starter
+    schedule: "30 4 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python capture_once.py --slot MORNING
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: DATABASE_URL
+        sync: false
+
+  - type: cron
+    name: goldrate-evening
+    runtime: python
+    plan: starter
+    schedule: "30 11 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python capture_once.py --slot EVENING
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: DATABASE_URL
+        sync: false
