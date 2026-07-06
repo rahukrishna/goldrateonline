@@ -159,6 +159,20 @@ Notes:
 	- `30 4 * * *` -> 10:00 AM IST
 	- `30 11 * * *` -> 5:00 PM IST
 
+## Free Deployment (Render Blueprint Fallback)
+
+If Render asks for payment details, use the free fallback blueprint in this repo.
+
+What this fallback does:
+
+- Deploys only one free web service (`goldrateonline`) on Render.
+- Uses GitHub Actions for 10:00 AM and 5:00 PM IST scheduled captures.
+
+Notes:
+
+- Free web services can sleep after inactivity.
+- Keep `DATABASE_URL` same in Render and GitHub Actions so app and scheduler write to same DB.
+
 ## Automatic 10 AM / 5 PM Updates (GitHub Actions)
 
 This repo includes a scheduler workflow at `.github/workflows/gold-rate-scheduler.yml`.
